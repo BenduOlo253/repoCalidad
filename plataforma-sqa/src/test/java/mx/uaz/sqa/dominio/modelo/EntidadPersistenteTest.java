@@ -4,10 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import mx.uaz.sqa.soporte.Fabrica;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import mx.uaz.sqa.soporte.Fabrica;
 
 @DisplayName("EntidadPersistente – Identidad y control de concurrencia optimista")
 class EntidadPersistenteTest {
