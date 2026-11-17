@@ -25,6 +25,7 @@ class MetricaTest {
 
         assertEquals(EstadoSemaforo.SIN_DATOS, metrica.getEstadoActual());
         assertNull(metrica.getUltimoValor());
+        assertNull(metrica.getVersion());
         assertEquals("—", metrica.valorActualFormateado());
         assertSame(proyecto, metrica.getProyecto());
         assertEquals(UnidadMedida.PORCENTAJE, metrica.getUnidad());

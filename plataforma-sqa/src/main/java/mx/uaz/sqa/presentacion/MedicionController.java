@@ -13,6 +13,7 @@ import mx.uaz.sqa.servicio.MedicionService;
 import mx.uaz.sqa.servicio.MetricaService;
 import mx.uaz.sqa.servicio.dto.IndicadorMetrica;
 import mx.uaz.sqa.servicio.dto.ProyectoResumen;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -59,6 +60,9 @@ public class MedicionController extends ControladorBase {
                 return "redirect:/metricas/" + id + "/mediciones";
             } catch (ReglaNegocioException e) {
                 registrarError(resultado, e);
+            } catch (OptimisticLockingFailureException e) {
+                resultado.reject("concurrencia",
+                        "Conflicto de concurrencia: la métrica fue actualizada simultáneamente por otra transacción. Intenta nuevamente.");
             }
         }
         return mostrar(id, model);
