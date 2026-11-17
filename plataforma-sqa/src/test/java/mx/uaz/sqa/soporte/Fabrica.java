@@ -72,4 +72,16 @@ public final class Fabrica {
             throw new IllegalStateException(e);
         }
     }
+
+    /** Asigna una versión como si la entidad ya hubiera sido persistida por JPA. */
+    public static <T extends EntidadPersistente> T conVersion(T entidad, long version) {
+        try {
+            Field campo = EntidadPersistente.class.getDeclaredField("version");
+            campo.setAccessible(true);
+            campo.set(entidad, version);
+            return entidad;
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
 }
