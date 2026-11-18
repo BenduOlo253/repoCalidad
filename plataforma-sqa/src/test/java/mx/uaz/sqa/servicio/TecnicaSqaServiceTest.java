@@ -21,6 +21,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import mx.uaz.sqa.dominio.excepcion.DatosInvalidosException;
 import mx.uaz.sqa.dominio.excepcion.EvidenciaInvalidaException;
@@ -345,6 +347,53 @@ class TecnicaSqaServiceTest {
         assertEquals("clave-nueva.pdf", tecnica.getEvidencia().getArchivoClave());
         assertEquals("acta-v2.pdf", tecnica.getEvidencia().getArchivoNombre());
         verify(almacen).eliminar("clave-vieja.pdf");
+    }
+
+    @Test
+    @DisplayName("Con transacción activa, difiere la eliminación del archivo anterior hasta afterCommit")
+    void difiereEliminacionHastaAfterCommitConTransaccionActiva() {
+        when(tecnicas.findById(5L))
+                .thenReturn(Optional.of(tecnica));
+
+        when(almacen.guardar("acta-v1.pdf", CONTENIDO))
+                .thenReturn("clave-vieja.pdf");
+
+        when(almacen.guardar("acta-v2.pdf", CONTENIDO))
+                .thenReturn("clave-nueva.pdf");
+
+        // 1. Primera carga de evidencia (sin transacción activa)
+        servicio.actualizarEstado(
+                5L,
+                EstadoTecnica.EN_PROGRESO,
+                null,
+                new ArchivoAdjunto("acta-v1.pdf", CONTENIDO),
+                "dev"
+        );
+
+        // 2. Simulamos una transacción de Spring activa para el reemplazo
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            servicio.actualizarEstado(
+                    5L,
+                    EstadoTecnica.APLICADO,
+                    null,
+                    new ArchivoAdjunto("acta-v2.pdf", CONTENIDO),
+                    "sqa"
+            );
+
+            // Antes del commit, el archivo anterior NO debe haberse eliminado todavía
+            verify(almacen, never()).eliminar("clave-vieja.pdf");
+
+            // Disparamos el callback afterCommit() como lo haría Spring al confirmar en BD
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+
+            // Tras el commit, el archivo anterior sí debe eliminarse
+            verify(almacen).eliminar("clave-vieja.pdf");
+        } finally {
+            // Limpiamos la sincronización del hilo para no contaminar otros tests
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test
