@@ -1,16 +1,15 @@
 package mx.uaz.sqa.persistencia;
 
+import java.util.List;
 import mx.uaz.sqa.dominio.modelo.Proyecto;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-/**
- * Persistencia de proyectos (RS-01, RS-02).
- */
 public interface ProyectoRepository extends JpaRepository<Proyecto, Long> {
 
-    /** CU01 paso 3: ¿existe otro proyecto con el mismo nombre en el mismo periodo? */
-    boolean existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCase(String nombre, String etiquetaPeriodo);
+    boolean existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCase(String nombre, String etiqueta);
 
-    /** Igual que el anterior pero excluyendo al propio proyecto (edición, RS-02). */
-    boolean existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCaseAndIdNot(String nombre, String etiquetaPeriodo, Long id);
+    boolean existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCaseAndIdNot(String nombre, String etiqueta, Long id);
+
+    // Issue #3: Obtener proyectos del mismo periodo para validar consistencia de rangos temporales
+    List<Proyecto> findByPeriodoEtiquetaIgnoreCase(String etiqueta);
 }
