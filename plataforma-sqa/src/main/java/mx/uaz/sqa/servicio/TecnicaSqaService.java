@@ -4,6 +4,10 @@ package mx.uaz.sqa.servicio;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import mx.uaz.sqa.dominio.excepcion.DatosInvalidosException;
 import mx.uaz.sqa.dominio.excepcion.RecursoNoEncontradoException;
 import mx.uaz.sqa.dominio.modelo.CambioEstadoTecnica;
@@ -19,8 +23,6 @@ import mx.uaz.sqa.persistencia.UsuarioRepository;
 import mx.uaz.sqa.servicio.dto.ArchivoAdjunto;
 import mx.uaz.sqa.servicio.dto.ArchivoDescargable;
 import mx.uaz.sqa.servicio.dto.DatosTecnica;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * CU04 – Gestionar Ejecución y Evidencia de Técnica SQA (RS-06, RS-07, RS-08).
@@ -98,22 +100,32 @@ public class TecnicaSqaService {
      * RS-07 / RS-08: cambia el estado de la técnica adjuntando opcionalmente una URL y/o un archivo.
      * Si la regla de evidencia falla, el archivo recién guardado se elimina (no quedan huérfanos).
      */
-    public TecnicaSqa actualizarEstado(Long tecnicaId, EstadoTecnica nuevoEstado, String urlEvidencia,
-                                       ArchivoAdjunto archivo, String autor) {
+    public TecnicaSqa actualizarEstado(Long tecnicaId, EstadoTecnica nuevoEstado,
+                                       String urlEvidencia, ArchivoAdjunto archivo, String autor) {
         TecnicaSqa tecnica = obtener(tecnicaId);
+        
+        // 1. Capturamos la clave del archivo previo (si existía) antes de reemplazar la evidencia
+        String claveAnterior = (tecnica.getEvidencia() != null && tecnica.getEvidencia().tieneArchivo())
+                ? tecnica.getEvidencia().getArchivoClave()
+                : null;
+
         Evidencia evidenciaNueva = Evidencia.deUrl(urlEvidencia);
         String claveGuardada = null;
-
         if (archivo != null && !archivo.estaVacio()) {
             claveGuardada = almacen.guardar(archivo.nombreOriginal(), archivo.contenido());
             evidenciaNueva = evidenciaNueva.conArchivo(claveGuardada, archivo.nombreOriginal());
         }
-
         try {
             CambioEstadoTecnica cambio = tecnica.cambiarEstado(
                     nuevoEstado, evidenciaNueva, autor, LocalDateTime.now(reloj)
             );
             cambios.save(cambio);
+
+            // 2. Issue #2: Si se guardó un archivo nuevo y todo salió bien, purgamos el archivo anterior
+            if (claveGuardada != null && claveAnterior != null && !claveAnterior.equals(claveGuardada)) {
+                almacen.eliminar(claveAnterior);
+            }
+
             return tecnica;
         } catch (RuntimeException e) {
             if (claveGuardada != null) {
