@@ -7,6 +7,8 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import mx.uaz.sqa.dominio.excepcion.DatosInvalidosException;
 import mx.uaz.sqa.dominio.excepcion.RecursoNoEncontradoException;
@@ -103,8 +105,7 @@ public class TecnicaSqaService {
     public TecnicaSqa actualizarEstado(Long tecnicaId, EstadoTecnica nuevoEstado,
                                        String urlEvidencia, ArchivoAdjunto archivo, String autor) {
         TecnicaSqa tecnica = obtener(tecnicaId);
-        
-        // 1. Capturamos la clave del archivo previo (si existía) antes de reemplazar la evidencia
+
         String claveAnterior = (tecnica.getEvidencia() != null && tecnica.getEvidencia().tieneArchivo())
                 ? tecnica.getEvidencia().getArchivoClave()
                 : null;
@@ -121,9 +122,9 @@ public class TecnicaSqaService {
             );
             cambios.save(cambio);
 
-            // 2. Issue #2: Si se guardó un archivo nuevo y todo salió bien, purgamos el archivo anterior
+            // Issue #2: Diferir el borrado del archivo anterior hasta que el COMMIT sea exitoso
             if (claveGuardada != null && claveAnterior != null && !claveAnterior.equals(claveGuardada)) {
-                almacen.eliminar(claveAnterior);
+                eliminarTrasCommit(claveAnterior);
             }
 
             return tecnica;
@@ -132,6 +133,20 @@ public class TecnicaSqaService {
                 almacen.eliminar(claveGuardada);
             }
             throw e;
+        }
+    }
+
+    private void eliminarTrasCommit(String claveArchivo) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    almacen.eliminar(claveArchivo);
+                }
+            });
+        } else {
+            // Ejecución directa cuando se corre en pruebas unitarias puras (Mockito sin Spring Context)
+            almacen.eliminar(claveArchivo);
         }
     }
 
