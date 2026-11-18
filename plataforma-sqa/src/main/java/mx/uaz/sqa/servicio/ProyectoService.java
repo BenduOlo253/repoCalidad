@@ -5,7 +5,9 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
+import mx.uaz.sqa.dominio.excepcion.DatosInvalidosException;
 import mx.uaz.sqa.dominio.excepcion.ProyectoDuplicadoException;
 import mx.uaz.sqa.dominio.excepcion.RecursoNoEncontradoException;
 import mx.uaz.sqa.dominio.modelo.Periodo;
@@ -65,6 +67,7 @@ public class ProyectoService {
         if (proyectos.existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCase(nuevo.getNombre(), periodo.getEtiqueta())) {
             throw duplicado(nuevo.getNombre(), periodo);
         }
+        validarConsistenciaPeriodo(periodo, null);
         return proyectos.save(nuevo);
     }
 
@@ -76,6 +79,7 @@ public class ProyectoService {
         if (proyectos.existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCaseAndIdNot(nombre, periodo.getEtiqueta(), id)) {
             throw duplicado(nombre, periodo);
         }
+        validarConsistenciaPeriodo(periodo, id);
         proyecto.actualizarDatos(nombre, datos.descripcion(), datos.tecnologias(), periodo);
         return proyecto;
     }
@@ -86,6 +90,29 @@ public class ProyectoService {
             proyecto.activar();
         } else {
             proyecto.desactivar();
+        }
+    }
+
+    /**
+     * Issue #3 (DEF-BD-01): garantiza que todos los proyectos asociados a la misma
+     * etiqueta de periodo compartan exactamente el mismo rango de fechas.
+     */
+    private void validarConsistenciaPeriodo(Periodo nuevoPeriodo, Long idExcluido) {
+        List<Proyecto> existentes = proyectos.findByPeriodoEtiquetaIgnoreCase(nuevoPeriodo.getEtiqueta());
+        for (Proyecto existente : existentes) {
+            if (idExcluido != null && Objects.equals(existente.getId(), idExcluido)) {
+                continue;
+            }
+            Periodo referencia = existente.getPeriodo();
+            boolean coincidenFechas = referencia.getFechaInicio().equals(nuevoPeriodo.getFechaInicio())
+                    && referencia.getFechaFin().equals(nuevoPeriodo.getFechaFin());
+            if (!coincidenFechas) {
+                throw new DatosInvalidosException(
+                        "El periodo \"" + referencia.getEtiqueta() + "\" ya está registrado con las fechas "
+                                + referencia.getFechaInicio() + " a " + referencia.getFechaFin(),
+                        "etiquetaPeriodo"
+                );
+            }
         }
     }
 

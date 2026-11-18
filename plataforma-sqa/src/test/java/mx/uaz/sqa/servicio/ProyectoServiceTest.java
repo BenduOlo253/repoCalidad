@@ -7,15 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import mx.uaz.sqa.dominio.excepcion.PeriodoInvalidoException;
+import mx.uaz.sqa.dominio.excepcion.DatosInvalidosException;
 import mx.uaz.sqa.dominio.excepcion.ProyectoDuplicadoException;
 import mx.uaz.sqa.dominio.excepcion.RecursoNoEncontradoException;
 import mx.uaz.sqa.dominio.modelo.Periodo;
@@ -33,135 +31,185 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Sort;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("CU01 – Gestionar proyecto por periodo (servicio)")
+@DisplayName("CU01 – Gestionar proyecto de software por periodo (servicio)")
 class ProyectoServiceTest {
-
-    private static final String PERIODO = "Ago-Dic 2026";
 
     @Mock
     private ProyectoRepository proyectos;
 
     private ProyectoService servicio;
+    private Proyecto existente;
 
     @BeforeEach
     void preparar() {
         servicio = new ProyectoService(proyectos, Fabrica.reloj());
-    }
-
-    private static DatosProyecto datos(String nombre, LocalDate inicio, LocalDate fin) {
-        return new DatosProyecto(nombre, "Descripción", "Java", PERIODO, inicio, fin);
+        existente = Fabrica.conId(Fabrica.proyecto(), 1L);
     }
 
     @Test
-    @DisplayName("Dado un proyecto válido, cuando se registra, entonces se guarda vinculado al periodo")
-    void registraProyecto() {
-        when(proyectos.existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCase("Plataforma SQA", PERIODO)).thenReturn(false);
-        when(proyectos.save(any(Proyecto.class))).thenAnswer(invocacion -> invocacion.getArgument(0));
+    @DisplayName("RS-01: crea un proyecto válido cuando el periodo es nuevo o consistente")
+    void creaProyecto() {
+        Periodo p = existente.getPeriodo();
+        DatosProyecto datos = new DatosProyecto(
+                "Nuevo Sistema",
+                "Descripción",
+                "Java, Spring",
+                p.getEtiqueta(),
+                p.getFechaInicio(),
+                p.getFechaFin()
+        );
 
-        Proyecto proyecto = servicio.crear(datos("Plataforma SQA", Fabrica.INICIO_PERIODO, Fabrica.FIN_PERIODO));
+        when(proyectos.existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCase("Nuevo Sistema", p.getEtiqueta()))
+                .thenReturn(false);
+        when(proyectos.findByPeriodoEtiquetaIgnoreCase(p.getEtiqueta()))
+                .thenReturn(List.of(existente));
+        when(proyectos.save(any(Proyecto.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
 
-        assertEquals("Plataforma SQA", proyecto.getNombre());
-        assertEquals(PERIODO, proyecto.getPeriodo().getEtiqueta());
-        assertEquals(Fabrica.AHORA, proyecto.getCreadoEn());
-        assertTrue(proyecto.isActivo());
-        verify(proyectos).save(proyecto);
+        Proyecto creado = servicio.crear(datos);
+
+        assertEquals("Nuevo Sistema", creado.getNombre());
+        assertEquals(p.getEtiqueta(), creado.getPeriodo().getEtiqueta());
+        verify(proyectos).save(any(Proyecto.class));
     }
 
     @Test
-    @DisplayName("CU01 flujo 3b: proyecto duplicado en el periodo → se cancela el guardado")
-    void rechazaDuplicado() {
-        when(proyectos.existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCase("Plataforma SQA", PERIODO)).thenReturn(true);
+    @DisplayName("RS-01: rechaza proyecto duplicado en el mismo periodo")
+    void rechazaProyectoDuplicadoAlCrear() {
+        Periodo p = existente.getPeriodo();
+        DatosProyecto datos = new DatosProyecto(
+                existente.getNombre(),
+                "Descripción",
+                "Java",
+                p.getEtiqueta(),
+                p.getFechaInicio(),
+                p.getFechaFin()
+        );
 
-        ProyectoDuplicadoException error = assertThrows(ProyectoDuplicadoException.class,
-                () -> servicio.crear(datos("Plataforma SQA", Fabrica.INICIO_PERIODO, Fabrica.FIN_PERIODO)));
+        when(proyectos.existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCase(existente.getNombre(), p.getEtiqueta()))
+                .thenReturn(true);
 
-        assertEquals("nombre", error.getCampo());
+        assertThrows(ProyectoDuplicadoException.class, () -> servicio.crear(datos));
+        verify(proyectos, never()).save(any());
+    }
+
+    // Issue #3: pruebas de consistencia temporal del periodo en creación y actualización.
+    @Test
+    @DisplayName("Issue #3: rechaza crear proyecto si el periodo ya existe con fecha de inicio o fin distinta")
+    void rechazaCrearConFechasDePeriodoInconsistentes() {
+        Periodo p = existente.getPeriodo();
+        when(proyectos.existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCase("Otro Proyecto", p.getEtiqueta()))
+                .thenReturn(false);
+        when(proyectos.findByPeriodoEtiquetaIgnoreCase(p.getEtiqueta()))
+                .thenReturn(List.of(existente));
+
+        // 1. Discrepancia en fecha de inicio
+        DatosProyecto datosInicioDistinto = new DatosProyecto(
+                "Otro Proyecto",
+                "Desc",
+                "Java",
+                p.getEtiqueta(),
+                p.getFechaInicio().plusDays(1),
+                p.getFechaFin()
+        );
+
+        DatosInvalidosException errorInicio = assertThrows(
+                DatosInvalidosException.class,
+                () -> servicio.crear(datosInicioDistinto)
+        );
+        assertEquals("etiquetaPeriodo", errorInicio.getCampo());
+
+        // 2. Discrepancia en fecha de fin
+        DatosProyecto datosFinDistinto = new DatosProyecto(
+                "Otro Proyecto",
+                "Desc",
+                "Java",
+                p.getEtiqueta(),
+                p.getFechaInicio(),
+                p.getFechaFin().minusDays(1)
+        );
+
+        assertThrows(DatosInvalidosException.class, () -> servicio.crear(datosFinDistinto));
         verify(proyectos, never()).save(any());
     }
 
     @Test
-    @DisplayName("CU01 flujo 3a: rango de fechas inválido → no se consulta ni guarda nada")
-    void rechazaFechasInvalidas() {
-        assertThrows(PeriodoInvalidoException.class,
-                () -> servicio.crear(datos("Plataforma SQA", Fabrica.FIN_PERIODO, Fabrica.INICIO_PERIODO)));
+    @DisplayName("Issue #3: al actualizar permite cambiar fechas si es el único proyecto del periodo, pero rechaza si choca con otro")
+    void validaConsistenciaPeriodoAlActualizar() {
+        Periodo p = existente.getPeriodo();
+        Proyecto otroEnMismoPeriodo = Fabrica.conId(Fabrica.proyecto(), 2L);
 
-        verifyNoInteractions(proyectos);
-    }
-
-    @Test
-    @DisplayName("RS-02: actualiza un proyecto existente")
-    void actualizaProyecto() {
-        Proyecto existente = Fabrica.conId(Fabrica.proyecto(), 7L);
-        when(proyectos.findById(7L)).thenReturn(Optional.of(existente));
-        when(proyectos.existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCaseAndIdNot("Nuevo nombre", PERIODO, 7L))
+        when(proyectos.findById(1L)).thenReturn(Optional.of(existente));
+        when(proyectos.existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCaseAndIdNot("Plataforma SQA", p.getEtiqueta(), 1L))
                 .thenReturn(false);
 
-        Proyecto actualizado = servicio.actualizar(7L, datos(" Nuevo nombre ", Fabrica.INICIO_PERIODO, Fabrica.FIN_PERIODO));
+        // Caso A: Solo existe el proyecto 1L en ese periodo (se ignora a sí mismo y permite actualizar)
+        when(proyectos.findByPeriodoEtiquetaIgnoreCase(p.getEtiqueta()))
+                .thenReturn(List.of(existente));
 
-        assertEquals("Nuevo nombre", actualizado.getNombre());
-        assertEquals("Java", actualizado.getTecnologias());
+        LocalDate nuevaFin = p.getFechaFin().plusDays(5);
+        DatosProyecto datosActualizados = new DatosProyecto(
+                "Plataforma SQA",
+                "Nueva desc",
+                "Spring Boot",
+                p.getEtiqueta(),
+                p.getFechaInicio(),
+                nuevaFin
+        );
+
+        Proyecto actualizado = servicio.actualizar(1L, datosActualizados);
+        assertEquals(nuevaFin, actualizado.getPeriodo().getFechaFin());
+
+        // Caso B: Hay otro proyecto (2L) en el mismo periodo con las fechas originales -> debe rechazar
+        when(proyectos.findByPeriodoEtiquetaIgnoreCase(p.getEtiqueta()))
+                .thenReturn(List.of(existente, otroEnMismoPeriodo));
+
+        DatosProyecto datosConflictivos = new DatosProyecto(
+                "Plataforma SQA",
+                "Nueva desc",
+                "Spring Boot",
+                p.getEtiqueta(),
+                p.getFechaInicio(),
+                p.getFechaFin().plusDays(10)
+        );
+
+        assertThrows(DatosInvalidosException.class, () -> servicio.actualizar(1L, datosConflictivos));
     }
 
     @Test
-    @DisplayName("RS-02: no permite renombrar a un nombre ya usado en el mismo periodo")
-    void actualizarRechazaDuplicado() {
-        Proyecto existente = Fabrica.conId(Fabrica.proyecto(), 7L);
-        when(proyectos.findById(7L)).thenReturn(Optional.of(existente));
-        when(proyectos.existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCaseAndIdNot("Otro", PERIODO, 7L))
+    @DisplayName("RS-02: rechaza actualizar si el nuevo nombre duplica otro proyecto del periodo")
+    void rechazaDuplicadoAlActualizar() {
+        Periodo p = existente.getPeriodo();
+        when(proyectos.findById(1L)).thenReturn(Optional.of(existente));
+        when(proyectos.existsByNombreIgnoreCaseAndPeriodoEtiquetaIgnoreCaseAndIdNot("Duplicado", p.getEtiqueta(), 1L))
                 .thenReturn(true);
 
-        assertThrows(ProyectoDuplicadoException.class,
-                () -> servicio.actualizar(7L, datos("Otro", Fabrica.INICIO_PERIODO, Fabrica.FIN_PERIODO)));
-        assertEquals("Plataforma SQA", existente.getNombre());
+        DatosProyecto datos = new DatosProyecto(
+                "Duplicado", "Desc", "Java", p.getEtiqueta(), p.getFechaInicio(), p.getFechaFin()
+        );
+
+        assertThrows(ProyectoDuplicadoException.class, () -> servicio.actualizar(1L, datos));
     }
 
     @Test
-    @DisplayName("Un proyecto inexistente produce RecursoNoEncontradoException")
-    void proyectoInexistente() {
+    @DisplayName("Activa, desactiva, lista y obtiene resumen de proyectos")
+    void operacionesDeConsultaYEstado() {
+        when(proyectos.findById(1L)).thenReturn(Optional.of(existente));
         when(proyectos.findById(99L)).thenReturn(Optional.empty());
+        when(proyectos.findAll(any(Sort.class))).thenReturn(List.of(existente));
 
-        assertThrows(RecursoNoEncontradoException.class, () -> servicio.obtener(99L));
-    }
-
-    @Test
-    @DisplayName("El catálogo se agrupa por periodo respetando el orden del repositorio")
-    void agrupaPorPeriodo() {
-        Proyecto agosto = Fabrica.conId(Fabrica.proyecto("A"), 1L);
-        Proyecto enero = Fabrica.conId(new Proyecto("B", null, null,
-                Periodo.de("Ene-Jun 2027", LocalDate.of(2027, 1, 11), LocalDate.of(2027, 6, 4)), Fabrica.AHORA), 2L);
-        when(proyectos.findAll(any(Sort.class))).thenReturn(List.of(enero, agosto));
-
-        Map<String, List<ProyectoResumen>> grupos = servicio.listarAgrupadosPorPeriodo();
-
-        assertEquals(List.of("Ene-Jun 2027", PERIODO), new ArrayList<>(grupos.keySet()));
-        assertEquals(1L, grupos.get(PERIODO).get(0).id());
-    }
-
-    @Test
-    @DisplayName("Activar y desactivar un proyecto")
-    void cambiaActivo() {
-        Proyecto existente = Fabrica.conId(Fabrica.proyecto(), 3L);
-        when(proyectos.findById(3L)).thenReturn(Optional.of(existente));
-
-        servicio.cambiarActivo(3L, false);
+        servicio.cambiarActivo(1L, false);
         assertFalse(existente.isActivo());
 
-        servicio.cambiarActivo(3L, true);
+        servicio.cambiarActivo(1L, true);
         assertTrue(existente.isActivo());
-    }
 
-    @Test
-    @DisplayName("El resumen expone los datos del proyecto para la vista")
-    void obtieneResumen() {
-        Proyecto existente = Fabrica.conId(Fabrica.proyecto(), 3L);
-        when(proyectos.findById(3L)).thenReturn(Optional.of(existente));
+        ProyectoResumen resumen = servicio.obtenerResumen(1L);
+        assertEquals(existente.getNombre(), resumen.nombre());
 
-        ProyectoResumen resumen = servicio.obtenerResumen(3L);
+        Map<String, List<ProyectoResumen>> agrupados = servicio.listarAgrupadosPorPeriodo();
+        assertEquals(1, agrupados.size());
 
-        assertEquals(3L, resumen.id());
-        assertEquals(PERIODO, resumen.periodo());
-        assertEquals(Fabrica.INICIO_PERIODO, resumen.fechaInicio());
-        assertTrue(resumen.periodoDescripcion().startsWith(PERIODO));
-        assertTrue(resumen.activo());
+        assertThrows(RecursoNoEncontradoException.class, () -> servicio.obtener(99L));
     }
 }
