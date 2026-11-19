@@ -1,0 +1,9 @@
+﻿#9,Variables ambiguas y de una sola letra en vistas, scripts y clases de inicializaci├│n,2026-11-07T02:34:03Z,2026-11-11T18:02:05Z
+#8,Contenedor ejecut├índose con privilegios de superusuario (root),2026-11-07T02:33:26Z,2026-11-09T21:10:05Z
+#7,Archivo de exclusi├│n Docker mal nombrado e inclusi├│n de carpetas en build context,2026-11-07T02:31:26Z,2026-11-09T21:10:07Z
+#6,Igualdad de entidades dependiente de puntero en colecciones de servicio,2026-11-07T02:30:53Z,2026-11-18T20:00:40Z
+#5,Riesgo de Lost Update en campos en cach├® de Metrica ante concurrencia,2026-11-07T02:30:11Z,2026-11-17T12:41:32Z
+#4,Ausencia de validaci├│n de integridad referencial en responsable de t├®cnica,2026-11-07T02:29:32Z,2026-11-13T21:56:43Z
+#3,Desnormalizaci├│n y conflicto de rangos temporales en Periodo,2026-11-07T02:28:44Z,2026-11-18T19:48:39Z
+#2,Acumulaci├│n de archivos hu├®rfanos al reemplazar evidencia en t├®cnicas SQA,2026-11-07T02:27:30Z,2026-11-18T17:42:42Z
+#1,Falta de transaccionalidad expl├¡cita en capa de servicio y persistencia acoplada a Open-in-View,2026-11-07T02:26:08Z,2026-11-17T11:58:32Z
